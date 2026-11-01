@@ -30,6 +30,7 @@
   <p>인페리우스, 어둠의 마법사, 디멘터를 물리치고</p>
   <p><b>5분</b>이 되면 나타나는 <b>볼드모트</b>를 쓰러뜨려라!</p>
   <p>마법은 <b>자동</b>으로 나가요. 너는 움직이기만 하면 돼!</p>
+  <p>1분에는 <b>론</b>, 2분에는 <b>헤르미온느</b>가 도우러 와요!</p>
   <p>⌨️ 방향키 / WASD &nbsp; 📱 화면을 누르고 끌기</p>
   <button class="big" id="startBtn">시작!</button>
   <p class="small">혼자 즐기는 팬 게임이에요 (해리 포터는 J.K. 롤링과 워너 브라더스의 작품)</p>
@@ -64,11 +65,13 @@ const FINAL_TIME = 300;   // 5분 - 볼드모트
 
 // ---------- 마법 & 강화 목록 ----------
 const UPGRADES = {
-  bolt:      { icon: '✨', name: '스투페파이',     desc: '가장 가까운 적에게 기절 마법 발사', weapon: true },
+  bolt:      { icon: '✨', name: '스투페파이',     desc: '가까운 적에게 강력한 기절 마법 발사', weapon: true },
   orbit:     { icon: '🔥', name: '인센디오',       desc: '내 주위를 빙빙 도는 불꽃', weapon: true },
   lightning: { icon: '⚡', name: '번개 마법',      desc: '하늘에서 적에게 번개가 쾅!', weapon: true },
   frost:     { icon: '❄️', name: '글래시우스',     desc: '가까운 적을 얼리고 느리게', weapon: true },
   potion:    { icon: '🧪', name: '폭발 물약',      desc: '물약을 던져 펑! 터뜨리기', weapon: true },
+  herb:      { icon: '🌿', name: '헤르비폴즈',     desc: '땅에서 덩굴이 솟아 적을 공격하고 묶기', weapon: true },
+  bombarda:  { icon: '💥', name: '봄바르다',       desc: '날아가서 쾅! 큰 폭발을 일으키기', weapon: true },
   patronus:  { icon: '🦌', name: '익스펙토 패트로눔', desc: '은빛 사슴이 돌진! 디멘터에게 3배', weapon: true },
   speed:     { icon: '🧹', name: '빗자루',         desc: '이동 속도 +12%' },
   heart:     { icon: '❤️', name: '튼튼한 몸',      desc: '최대 체력 +25, 체력 회복' },
@@ -92,8 +95,9 @@ function newGame() {
   S = {
     t: 0, kills: 0, running: true, paused: false, trollDone: false, final: false, msg: null, hurtT: 0,
     p: { x: 0, y: 0, r: 14, hp: 100, maxHp: 100, inv: 0, lv: 1, xp: 0, next: 5, face: 1, moving: false },
-    up: { bolt: 1, orbit: 0, lightning: 0, frost: 0, potion: 0, patronus: 0, speed: 0, heart: 0, magnet: 0, power: 0, haste: 0 },
-    cd: { bolt: 0, lightning: 0, potion: 0, patronus: 1 },
+    up: { bolt: 1, orbit: 0, lightning: 0, frost: 0, potion: 0, patronus: 0, herb: 0, bombarda: 0, speed: 0, heart: 0, magnet: 0, power: 0, haste: 0 },
+    cd: { bolt: 0, lightning: 0, potion: 0, patronus: 1, herb: 0.5, bombarda: 0.5 },
+    vines: [], bombs: [], booms: [], allies: [], ashots: [], shake: 0, ronDone: false, hermDone: false,
     enemies: [], shots: [], eshots: [], gems: [], potions: [], fx: [], texts: [], bolts: [], stags: [],
     spawnT: 0, orbitA: 0,
   };
@@ -141,6 +145,25 @@ function nearestEnemy(maxD = 600, filter) {
     const d = dist2(e, S.p); if (d < bd) { bd = d; best = e; }
   }
   return best;
+}
+function nearestFrom(pt, maxD) {
+  let best = null, bd = maxD * maxD;
+  for (const e of S.enemies) { const d = dist2(e, pt); if (d < bd) { bd = d; best = e; } }
+  return best;
+}
+function makeAlly(kind, offx, offy) {
+  const a = { kind, offx, offy, x: S.p.x + offx, y: S.p.y + offy, face: 1, moving: false, cd: 0.5, inv: 0 };
+  for (let i = 0; i < 25; i++) burst(a.x, a.y, kind === 'ron' ? '#ff9a3c' : '#9fd0ff', 1);
+  return a;
+}
+function explode(x, y, R, dmg) {
+  for (const e of S.enemies) if (dist2(e, { x, y }) < (R + e.r) ** 2) hurtEnemy(e, dmg);
+  S.booms.push({ x, y, R, t: 0 });
+  S.shake = Math.min(8, S.shake + 4);
+  for (let i = 0; i < 14; i++) {
+    const a = rand(0, 6.28), sp = rand(80, 260);
+    S.fx.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.6, color: ['#ffdd55', '#ff8822', '#cc3311', '#555'][i % 4] });
+  }
 }
 function burst(x, y, color, n = 8) {
   for (let i = 0; i < n; i++) {
@@ -253,14 +276,14 @@ function update(dt) {
   if (S.cd.bolt <= 0) {
     const tgt = nearestEnemy();
     if (tgt) {
-      S.cd.bolt = (0.9 - 0.08 * U.bolt) * cdMul();
+      S.cd.bolt = (0.7 - 0.07 * U.bolt) * cdMul();
       const n = 1 + Math.floor(U.bolt / 2);
       const base = Math.atan2(tgt.y - p.y, tgt.x - p.x);
       p.face = Math.cos(base) >= 0 ? 1 : -1;
       for (let i = 0; i < n; i++) {
         const a = base + (i - (n - 1) / 2) * 0.18;
         S.shots.push({ x: p.x + p.face * 22, y: p.y - 8, vx: Math.cos(a) * 420, vy: Math.sin(a) * 420, life: 1.5,
-          dmg: 10 + 4 * U.bolt, pierce: U.bolt >= 5 ? 2 : 0, hit: new Set() });
+          dmg: 18 + 6 * U.bolt, pierce: U.bolt >= 5 ? 3 : U.bolt >= 3 ? 1 : 0, hit: new Set() });
       }
     }
   }
@@ -349,12 +372,111 @@ function update(dt) {
   }
   S.stags = S.stags.filter(s => s.life > 0);
 
+  // 헤르비폴즈 (땅에서 솟는 덩굴)
+  if (U.herb) {
+    S.cd.herb -= dt;
+    if (S.cd.herb <= 0) {
+      S.cd.herb = (3.2 - 0.25 * U.herb) * cdMul();
+      const vis = S.enemies.filter(e => Math.abs(e.x - p.x) < W / 2 && Math.abs(e.y - p.y) < H / 2);
+      vis.sort(() => Math.random() - 0.5);
+      for (const e of vis.slice(0, 1 + U.herb)) {
+        const R = 32 + 5 * U.herb;
+        S.vines.push({ x: e.x, y: e.y, R, t: 0, seed: Math.random() * 10 });
+        for (const o of S.enemies) if (dist2(o, e) < (R + o.r) ** 2) { hurtEnemy(o, 22 + 9 * U.herb); o.root = o.boss ? 0.3 : 1.2; }
+        burst(e.x, e.y, '#6b4a2a', 6);
+      }
+    }
+  }
+  for (const v of S.vines) v.t += dt;
+  S.vines = S.vines.filter(v => v.t < 1.4);
+
+  // 봄바르다 (큰 폭발)
+  if (U.bombarda) {
+    S.cd.bombarda -= dt;
+    if (S.cd.bombarda <= 0) {
+      const tgt = nearestEnemy(500);
+      if (tgt) {
+        S.cd.bombarda = (2.6 - 0.2 * U.bombarda) * cdMul();
+        const n = 1 + Math.floor(U.bombarda / 3);
+        for (let i = 0; i < n; i++) {
+          const e = i === 0 ? tgt : (S.enemies[Math.floor(Math.random() * S.enemies.length)] || tgt);
+          const a = Math.atan2(e.y - p.y, e.x - p.x), d = Math.sqrt(dist2(e, p));
+          S.bombs.push({ x: p.x, y: p.y - 8, vx: Math.cos(a) * 380, vy: Math.sin(a) * 380, life: Math.min(1.3, d / 380 + 0.05) });
+        }
+      }
+    }
+  }
+  for (const b of S.bombs) {
+    b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+    if (b.life > 0) for (const e of S.enemies) if (dist2(b, e) < (e.r + 6) ** 2) { b.life = 0; break; }
+    if (b.life <= 0) explode(b.x, b.y, 70 + 10 * U.bombarda, 35 + 14 * U.bombarda);
+    if (Math.random() < 0.7) S.fx.push({ x: b.x, y: b.y, vx: rand(-20, 20), vy: rand(-20, 20), life: 0.3, color: '#ffb040' });
+  }
+  S.bombs = S.bombs.filter(b => b.life > 0);
+  for (const bm of S.booms) bm.t += dt;
+  S.booms = S.booms.filter(bm => bm.t < 0.5);
+  S.shake = Math.max(0, S.shake - dt * 30);
+
+  // 친구들 등장
+  if (!S.ronDone && S.t >= 60) {
+    S.ronDone = true; S.allies.push(makeAlly('ron', -50, 16));
+    S.msg = { s: '🧡 론 위즐리가 도우러 왔다!', life: 3, good: true };
+  }
+  if (!S.hermDone && S.t >= 120) {
+    S.hermDone = true; S.allies.push(makeAlly('hermione', 50, 16));
+    S.msg = { s: '💙 헤르미온느 그레인저가 도우러 왔다!', life: 3, good: true };
+  }
+  for (const a of S.allies) {
+    const tx = p.x + a.offx, ty = p.y + a.offy, dx = tx - a.x, dy = ty - a.y, l = Math.hypot(dx, dy);
+    if (l > 600) { a.x = tx; a.y = ty; }
+    else if (l > 1) { const sp = Math.min(l * 4, 280); a.x += dx / l * sp * dt; a.y += dy / l * sp * dt; }
+    a.moving = l > 6;
+    if (a.moving && Math.abs(dx) > 3) a.face = Math.sign(dx);
+    a.cd -= dt;
+    if (a.cd <= 0) {
+      const tgt = nearestFrom(a, 450);
+      if (tgt) {
+        const ang = Math.atan2(tgt.y - a.y, tgt.x - a.x);
+        a.face = Math.cos(ang) >= 0 ? 1 : -1;
+        const pw = 1 + S.t / 120;
+        if (a.kind === 'ron') {
+          a.cd = 0.75;
+          S.ashots.push({ x: a.x + a.face * 22, y: a.y - 8, vx: Math.cos(ang) * 460, vy: Math.sin(ang) * 460, life: 1.4, dmg: 22 * pw, kb: 30, color: 'ron' });
+        } else {
+          a.cd = 1.1;
+          for (let i = -1; i <= 1; i += 2) {
+            const b = ang + i * 0.12;
+            S.ashots.push({ x: a.x + a.face * 22, y: a.y - 8, vx: Math.cos(b) * 400, vy: Math.sin(b) * 400, life: 1.4, dmg: 26 * pw, boom: 55, color: 'herm' });
+          }
+        }
+      }
+    }
+  }
+  for (const s of S.ashots) {
+    s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
+    for (const e of S.enemies) {
+      if (s.life <= 0 || dist2(s, e) > (e.r + 6) ** 2) continue;
+      s.life = 0;
+      if (s.boom) {
+        for (const o of S.enemies) if (dist2(o, s) < (s.boom + o.r) ** 2) hurtEnemy(o, s.dmg);
+        S.fx.push({ ring: true, x: s.x, y: s.y, R: s.boom, life: 0.3, blue: true });
+        burst(s.x, s.y, '#6cf', 10);
+      } else {
+        hurtEnemy(e, s.dmg);
+        if (!e.boss) { const l = Math.hypot(s.vx, s.vy); e.x += s.vx / l * s.kb; e.y += s.vy / l * s.kb; }
+        burst(s.x, s.y, '#f84', 5);
+      }
+    }
+  }
+  S.ashots = S.ashots.filter(s => s.life > 0);
+
   // 적 움직임 & 공격
   for (const e of S.enemies) {
     e.flash -= dt; e.orbitHit -= dt;
     let sp = e.spd;
     if (frostR && dist2(e, p) < (frostR + e.r) ** 2) { sp *= 0.55; e.hp -= (10 + 6 * U.frost) * dmgMul() * dt; e.slow = 0.1; }
     else e.slow -= dt;
+    if (e.root > 0) { e.root -= dt; sp = 0; }
     const dx = p.x - e.x, dy = p.y - e.y, l = Math.hypot(dx, dy) || 1;
     const toP = Math.atan2(dy, dx);
     let ux = dx / l, uy = dy / l;
@@ -480,28 +602,39 @@ const floorTile = (() => {
   return ctx.createPattern(c, 'repeat');
 })();
 
-// ⚡ 해리 포터
-function drawHarry(x, y) {
-  const p = S.p, f = p.face, t = S.t;
-  const w = p.moving ? Math.sin(t * 14) : 0, bob = p.moving ? Math.abs(Math.sin(t * 14)) * 1.5 : 0;
+// ⚡ 호그와트 학생 그리기 (해리 / 론 / 헤르미온느)
+const KIDS = {
+  harry:    { hair: '#1a120d', eye: '#2e9b4e', skin: '#f1c8a5', tall: 0 },
+  ron:      { hair: '#d0601e', eye: '#4a7fc0', skin: '#f6d2b8', tall: 3 },
+  hermione: { hair: '#6b4325', eye: '#6a4020', skin: '#f3cdb0', tall: 0 },
+};
+function drawKid(x, y, k) {
+  const K = KIDS[k.kind], f = k.face, t = S.t + (k.kind === 'ron' ? 1.3 : k.kind === 'hermione' ? 2.6 : 0);
+  const w = k.moving ? Math.sin(t * 14) : 0, bob = k.moving ? Math.abs(Math.sin(t * 14)) * 1.5 : 0;
   ctx.save(); ctx.translate(x, y);
   ctx.fillStyle = 'rgba(0,0,0,.4)'; ell(0, 20, 13, 4);
-  if (p.inv > 0 && Math.floor(p.inv * 20) % 2) ctx.globalAlpha = 0.5;
-  ctx.scale(f, 1); ctx.translate(0, -bob);
+  if (k.inv > 0 && Math.floor(k.inv * 20) % 2) ctx.globalAlpha = 0.5;
+  ctx.scale(f, 1); ctx.translate(0, -bob - K.tall);
+  // 헤르미온느의 풍성한 뒷머리
+  if (k.kind === 'hermione') {
+    ctx.fillStyle = K.hair;
+    ell(-1, -13, 13, 13); ell(-6, -4, 7, 9); ell(5, -5, 6, 7);
+    ctx.fillStyle = '#7d5230'; ell(-4, -18, 5, 4); ell(-8, -8, 3, 4);
+  }
   // 다리 & 신발
-  ctx.fillStyle = '#2a2a33'; ctx.fillRect(-6 + w * 2, 9, 4, 9); ctx.fillRect(2 - w * 2, 9, 4, 9);
-  ctx.fillStyle = '#111'; ctx.fillRect(-7 + w * 2, 16, 6, 3); ctx.fillRect(2 - w * 2, 16, 6, 3);
+  ctx.fillStyle = k.kind === 'hermione' ? '#8a8a90' : '#2a2a33';
+  ctx.fillRect(-6 + w * 2, 9, 4, 9 + K.tall); ctx.fillRect(2 - w * 2, 9, 4, 9 + K.tall);
+  ctx.fillStyle = '#111'; ctx.fillRect(-7 + w * 2, 16 + K.tall, 6, 3); ctx.fillRect(2 - w * 2, 16 + K.tall, 6, 3);
   // 망토 (호그와트 교복)
   const rg = ctx.createLinearGradient(0, -6, 0, 16);
   rg.addColorStop(0, '#2c2c36'); rg.addColorStop(1, '#0c0c12');
   ctx.fillStyle = rg;
   ctx.beginPath(); ctx.moveTo(-8, -5); ctx.lineTo(8, -5); ctx.lineTo(13, 13); ctx.quadraticCurveTo(0, 17, -13, 13); ctx.closePath(); ctx.fill();
-  // 그리핀도르 안감 & 회색 스웨터
   ctx.fillStyle = '#7a0f14'; ctx.beginPath(); ctx.moveTo(-2, -3); ctx.lineTo(2, -3); ctx.lineTo(4, 14); ctx.lineTo(-4, 14); ctx.fill();
-  ctx.fillStyle = '#6b6b70'; ctx.beginPath(); ctx.moveTo(-1.5, -3); ctx.lineTo(1.5, -3); ctx.lineTo(2.5, 12); ctx.lineTo(-2.5, 12); ctx.fill();
-  // 그리핀도르 문장
+  ctx.fillStyle = k.kind === 'ron' ? '#7a2e2e' : '#6b6b70';
+  ctx.beginPath(); ctx.moveTo(-1.5, -3); ctx.lineTo(1.5, -3); ctx.lineTo(2.5, 12); ctx.lineTo(-2.5, 12); ctx.fill();
   ctx.fillStyle = '#c99a2e'; ctx.fillRect(-7, 1, 3.5, 4); ctx.fillStyle = '#8f1d21'; ctx.fillRect(-6.5, 1.5, 2.5, 3);
-  // 목도리 (빨강+금색 줄무늬)
+  // 그리핀도르 목도리
   ctx.fillStyle = '#8f1d21'; ctx.fillRect(-7.5, -7, 15, 4.5);
   ctx.fillStyle = '#d6a531'; ctx.fillRect(-4, -7, 2, 4.5); ctx.fillRect(2, -7, 2, 4.5);
   ctx.save(); ctx.translate(-5, -3); ctx.rotate(0.15 + w * 0.08);
@@ -510,33 +643,81 @@ function drawHarry(x, y) {
   ctx.restore();
   // 지팡이 든 팔
   ctx.strokeStyle = '#16161c'; ctx.lineWidth = 5; ctx.lineCap = 'round'; line(5, -2, 12, 4);
-  ctx.fillStyle = '#f1c8a5'; circ(13.5, 4.5, 2.4);
-  ctx.strokeStyle = '#5a3a1e'; ctx.lineWidth = 1.8; line(14, 4, 24, -4);
-  glow(24.5, -4.5, 6, 'rgba(255,255,220,0.9)');
+  ctx.fillStyle = K.skin; circ(13.5, 4.5, 2.4);
+  ctx.strokeStyle = k.kind === 'hermione' ? '#7a5a3a' : '#5a3a1e'; ctx.lineWidth = 1.8; line(14, 4, 24, -4);
+  const tip = k.kind === 'ron' ? 'rgba(255,170,90,0.9)' : k.kind === 'hermione' ? 'rgba(140,200,255,0.9)' : 'rgba(255,255,220,0.9)';
+  glow(24.5, -4.5, 6, tip);
   // 얼굴
-  ctx.fillStyle = '#f1c8a5'; circ(1, -15, 9.5);
-  ctx.fillStyle = '#e3b18f'; circ(-7.5, -14, 2.4); // 귀
-  ctx.fillStyle = '#c98a6e'; ctx.beginPath(); ctx.arc(4, -9.5, 2, 0.2, Math.PI - 0.2); ctx.fill(); // 입
-  // 덥수룩한 검은 머리
-  ctx.fillStyle = '#1a120d';
+  ctx.fillStyle = K.skin; ell(1, -15, 9.5, k.kind === 'ron' ? 10.5 : 9.5);
+  ctx.fillStyle = 'rgba(0,0,0,.08)'; circ(-7.5, -14, 2.4);
+  ctx.fillStyle = '#c98a6e'; ctx.beginPath(); ctx.arc(4, -9.5, 2, 0.2, Math.PI - 0.2); ctx.fill();
+  // 머리카락
+  ctx.fillStyle = K.hair;
   ctx.beginPath();
-  ctx.moveTo(-9, -12);
-  ctx.quadraticCurveTo(-11, -24, -2, -26); ctx.lineTo(-1, -29); ctx.lineTo(2, -26);
-  ctx.lineTo(5, -28); ctx.lineTo(6, -25); ctx.lineTo(10, -25); ctx.quadraticCurveTo(12, -20, 10.5, -17);
-  ctx.lineTo(8, -20); ctx.lineTo(6, -17.5); ctx.lineTo(3.5, -20.5); ctx.lineTo(1, -18); ctx.lineTo(-2, -20);
-  ctx.lineTo(-4, -16); ctx.lineTo(-6, -15); ctx.closePath(); ctx.fill();
-  // 번개 흉터
-  ctx.strokeStyle = '#b8323a'; ctx.lineWidth = 1.1;
-  ctx.beginPath(); ctx.moveTo(4.5, -20.5); ctx.lineTo(3, -18.8); ctx.lineTo(4.8, -18.8); ctx.lineTo(3.4, -16.8); ctx.stroke();
-  // 초록 눈
+  if (k.kind === 'harry') { // 덥수룩한 검은 머리
+    ctx.moveTo(-9, -12);
+    ctx.quadraticCurveTo(-11, -24, -2, -26); ctx.lineTo(-1, -29); ctx.lineTo(2, -26);
+    ctx.lineTo(5, -28); ctx.lineTo(6, -25); ctx.lineTo(10, -25); ctx.quadraticCurveTo(12, -20, 10.5, -17);
+    ctx.lineTo(8, -20); ctx.lineTo(6, -17.5); ctx.lineTo(3.5, -20.5); ctx.lineTo(1, -18); ctx.lineTo(-2, -20);
+    ctx.lineTo(-4, -16); ctx.lineTo(-6, -15);
+  } else if (k.kind === 'ron') { // 빨간 머리, 앞머리가 이마를 덮음
+    ctx.moveTo(-9.5, -10);
+    ctx.quadraticCurveTo(-12, -27, 1, -27); ctx.quadraticCurveTo(12, -27, 11, -16);
+    ctx.lineTo(9, -18.5); ctx.lineTo(7, -16.5); ctx.lineTo(5, -19); ctx.lineTo(2.5, -17); ctx.lineTo(0, -19);
+    ctx.lineTo(-3, -17); ctx.lineTo(-5, -15); ctx.lineTo(-7, -9);
+  } else { // 헤르미온느 앞머리
+    ctx.moveTo(-10, -10);
+    ctx.quadraticCurveTo(-12, -28, 2, -27); ctx.quadraticCurveTo(13, -26, 11.5, -13);
+    ctx.lineTo(10, -17); ctx.quadraticCurveTo(6, -22, 2, -20.5); ctx.quadraticCurveTo(-3, -21, -5, -15); ctx.lineTo(-7, -8);
+  }
+  ctx.closePath(); ctx.fill();
+  if (k.kind === 'ron') { ctx.fillStyle = '#e8813a'; ell(0, -24, 5, 2); }
+  if (k.kind === 'hermione') { ctx.fillStyle = K.hair; ell(10, -8, 3.5, 7); }
+  // 해리의 번개 흉터
+  if (k.kind === 'harry') {
+    ctx.strokeStyle = '#b8323a'; ctx.lineWidth = 1.1;
+    ctx.beginPath(); ctx.moveTo(4.5, -20.5); ctx.lineTo(3, -18.8); ctx.lineTo(4.8, -18.8); ctx.lineTo(3.4, -16.8); ctx.stroke();
+  }
+  // 눈
   ctx.fillStyle = '#fff'; ell(1.5, -13.5, 1.8, 1.5); ell(7.5, -13.5, 1.6, 1.5);
-  ctx.fillStyle = '#2e9b4e'; circ(2, -13.5, 1.2); circ(8, -13.5, 1.1);
+  ctx.fillStyle = K.eye; circ(2, -13.5, 1.2); circ(8, -13.5, 1.1);
   ctx.fillStyle = '#000'; circ(2.1, -13.5, 0.5); circ(8.1, -13.5, 0.5);
-  // 동그란 안경
-  ctx.strokeStyle = '#1b1b1b'; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.arc(1.6, -13.5, 3.3, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.arc(8, -13.5, 2.9, 0, Math.PI * 2); ctx.stroke();
-  line(4.9, -13.8, 5.1, -13.8); line(-1.7, -13.8, -7, -15);
+  if (k.kind === 'hermione') { ctx.strokeStyle = '#3a2414'; ctx.lineWidth = 0.6; line(0, -15.5, -1, -16.3); line(6.5, -15.5, 7.5, -16.3); }
+  // 론의 주근깨
+  if (k.kind === 'ron') {
+    ctx.fillStyle = '#c4783e';
+    [[0, -10.5], [1.5, -11], [6.5, -10.5], [8, -11], [7.2, -9.8], [0.8, -9.8]].forEach(([a, b]) => circ(a, b, 0.45));
+    ctx.strokeStyle = '#d9a689'; ctx.lineWidth = 0.8; line(5, -13, 6, -10.5); // 긴 코
+  }
+  // 해리의 동그란 안경
+  if (k.kind === 'harry') {
+    ctx.strokeStyle = '#1b1b1b'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(1.6, -13.5, 3.3, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(8, -13.5, 2.9, 0, Math.PI * 2); ctx.stroke();
+    line(4.9, -13.8, 5.1, -13.8); line(-1.7, -13.8, -7, -15);
+  }
+  ctx.restore(); ctx.globalAlpha = 1;
+}
+
+// 🌿 헤르비폴즈 덩굴
+function drawVine(v, x, y) {
+  const grow = Math.min(1, v.t / 0.25), fade = v.t > 1.0 ? 1 - (v.t - 1.0) / 0.4 : 1;
+  ctx.save(); ctx.translate(x, y); ctx.globalAlpha = Math.max(0, fade);
+  ctx.fillStyle = 'rgba(60,40,20,.7)'; ell(0, 6, v.R, v.R * 0.4);
+  ctx.fillStyle = 'rgba(30,20,10,.6)'; ell(0, 6, v.R * 0.6, v.R * 0.25);
+  const n = 6;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + v.seed, bx = Math.cos(a) * v.R * 0.55, by = 6 + Math.sin(a) * v.R * 0.22;
+    const h = (22 + (i % 3) * 8) * grow, sway = Math.sin(S.t * 6 + i + v.seed) * 4;
+    ctx.strokeStyle = i % 2 ? '#2f7a2a' : '#3f9a34'; ctx.lineWidth = 3.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(bx, by);
+    ctx.bezierCurveTo(bx - 8, by - h * 0.4, bx + 8 + sway, by - h * 0.7, bx + sway * 0.5, by - h);
+    ctx.stroke();
+    // 잎사귀
+    ctx.fillStyle = '#5cc24a';
+    ctx.save(); ctx.translate(bx + 3, by - h * 0.5); ctx.rotate(0.6 + i); ell(0, 0, 4 * grow, 2 * grow); ctx.restore();
+    ctx.fillStyle = '#7ee060'; circ(bx + sway * 0.5, by - h, 2 * grow);
+  }
   ctx.restore(); ctx.globalAlpha = 1;
 }
 
@@ -758,7 +939,8 @@ function drawStag(st, x, y) {
 }
 
 function draw() {
-  const p = S.p, ox = W / 2 - p.x, oy = H / 2 - p.y;
+  const p = S.p, shx = rand(-1, 1) * S.shake, shy = rand(-1, 1) * S.shake;
+  const ox = W / 2 - p.x + shx, oy = H / 2 - p.y + shy, cx0 = W / 2 + shx, cy0 = H / 2 + shy;
   // 바닥
   ctx.save(); ctx.translate(Math.round(ox), Math.round(oy)); ctx.fillStyle = floorTile;
   ctx.fillRect(-ox, -oy, W, H); ctx.restore();
@@ -766,15 +948,17 @@ function draw() {
   // 글래시우스
   if (S.up.frost) {
     const R = 60 + 15 * S.up.frost;
-    const g = ctx.createRadialGradient(W / 2, H / 2, R * 0.3, W / 2, H / 2, R);
+    const g = ctx.createRadialGradient(cx0, cy0, R * 0.3, cx0, cy0, R);
     g.addColorStop(0, 'rgba(150,220,255,0.05)'); g.addColorStop(1, 'rgba(170,230,255,0.3)');
-    ctx.fillStyle = g; circ(W / 2, H / 2, R);
+    ctx.fillStyle = g; circ(cx0, cy0, R);
     ctx.strokeStyle = 'rgba(200,240,255,0.6)'; ctx.lineWidth = 1.5;
     for (let i = 0; i < 6; i++) {
-      const a = S.t * 1.5 + i * Math.PI / 3, cx = W / 2 + Math.cos(a) * R * 0.8, cy = H / 2 + Math.sin(a) * R * 0.8;
+      const a = S.t * 1.5 + i * Math.PI / 3, cx = cx0 + Math.cos(a) * R * 0.8, cy = cy0 + Math.sin(a) * R * 0.8;
       for (let k = 0; k < 3; k++) { const b = k * Math.PI / 3; line(cx - Math.cos(b) * 4, cy - Math.sin(b) * 4, cx + Math.cos(b) * 4, cy + Math.sin(b) * 4); }
     }
   }
+  // 헤르비폴즈 덩굴
+  for (const v of S.vines) drawVine(v, v.x + ox, v.y + oy);
   // 보석
   for (const gm of S.gems) {
     const x = gm.x + ox, y = gm.y + oy;
@@ -793,9 +977,11 @@ function draw() {
     list.push(e);
   }
   list.push(p);
+  for (const a of S.allies) list.push(a);
   list.sort((a, b) => a.y - b.y);
   for (const e of list) {
-    if (e === p) drawHarry(W / 2, H / 2);
+    if (e === p) drawKid(cx0, cy0, { kind: 'harry', face: p.face, moving: p.moving, inv: p.inv });
+    else if (e.kind) drawKid(e.x + ox, e.y + oy, e);
     else drawEnemy(e, e.x + ox, e.y + oy);
   }
 
@@ -803,13 +989,13 @@ function draw() {
   // 인센디오
   if (S.up.orbit) for (let i = 0; i < S.up.orbit; i++) {
     const a = S.orbitA + i * Math.PI * 2 / S.up.orbit;
-    const x = W / 2 + Math.cos(a) * 75, y = H / 2 + Math.sin(a) * 75;
+    const x = cx0 + Math.cos(a) * 75, y = cy0 + Math.sin(a) * 75;
     glow(x, y, 20, 'rgba(255,120,20,0.8)');
     ctx.fillStyle = '#ffd36b'; circ(x, y, 6);
     for (let k = 1; k <= 3; k++) {
       const b = a - k * 0.12;
       ctx.fillStyle = `rgba(255,${120 - k * 25},20,${0.5 - k * 0.12})`;
-      circ(W / 2 + Math.cos(b) * 75, H / 2 + Math.sin(b) * 75, 8 - k * 1.5);
+      circ(cx0 + Math.cos(b) * 75, cy0 + Math.sin(b) * 75, 8 - k * 1.5);
     }
   }
   // 스투페파이
@@ -819,6 +1005,31 @@ function draw() {
     ctx.strokeStyle = 'rgba(255,120,120,0.6)'; ctx.lineWidth = 4;
     line(x, y, x - s.vx * 0.05, y - s.vy * 0.05);
     ctx.fillStyle = '#fff'; circ(x, y, 3);
+  }
+  // 친구들 마법
+  for (const s of S.ashots) {
+    const x = s.x + ox, y = s.y + oy;
+    if (s.color === 'ron') {
+      glow(x, y, 14, 'rgba(255,140,40,0.85)');
+      ctx.strokeStyle = 'rgba(255,170,80,0.6)'; ctx.lineWidth = 4; line(x, y, x - s.vx * 0.04, y - s.vy * 0.04);
+    } else {
+      glow(x, y, 15, 'rgba(70,150,255,0.9)');
+      ctx.fillStyle = 'rgba(120,190,255,0.6)'; circ(x - s.vx * 0.03, y - s.vy * 0.03, 4);
+    }
+    ctx.fillStyle = '#fff'; circ(x, y, 2.5);
+  }
+  // 봄바르다
+  for (const b of S.bombs) {
+    const x = b.x + ox, y = b.y + oy;
+    glow(x, y, 20, 'rgba(255,140,30,0.9)');
+    ctx.fillStyle = '#fff6c0'; circ(x, y, 4.5);
+  }
+  for (const bm of S.booms) {
+    const x = bm.x + ox, y = bm.y + oy, k = bm.t / 0.5;
+    glow(x, y, bm.R * (0.6 + k * 0.6), `rgba(255,${Math.round(200 - k * 150)},40,${1 - k})`);
+    ctx.fillStyle = `rgba(255,255,220,${Math.max(0, 1 - k * 2.5)})`; circ(x, y, bm.R * 0.35);
+    ctx.strokeStyle = `rgba(255,200,120,${1 - k})`; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, bm.R * (0.3 + k), 0, 7); ctx.stroke();
   }
   // 적의 마법
   for (const s of S.eshots) {
@@ -850,7 +1061,7 @@ function draw() {
   // 효과
   for (const f of S.fx) {
     if (f.ring) {
-      ctx.strokeStyle = `rgba(140,255,140,${f.life * 3})`; ctx.lineWidth = 5;
+      ctx.strokeStyle = f.blue ? `rgba(120,190,255,${f.life * 3})` : `rgba(140,255,140,${f.life * 3})`; ctx.lineWidth = 5;
       ctx.beginPath(); ctx.arc(f.x + ox, f.y + oy, f.R * (1.3 - f.life), 0, Math.PI * 2); ctx.stroke();
     } else {
       ctx.globalAlpha = Math.min(1, f.life * 2); ctx.fillStyle = f.color; ctx.fillRect(f.x + ox - 2, f.y + oy - 2, 4, 4); ctx.globalAlpha = 1;
@@ -898,12 +1109,16 @@ function draw() {
   ctx.fillText(`❤️ ${Math.ceil(p.hp)}/${p.maxHp}`, 12, 54);
   ctx.textAlign = 'right'; ctx.fillText(`💀 ${S.kills}`, W - 12, 32);
   ctx.textAlign = 'left'; ctx.font = '16px sans-serif';
-  let ix = 12;
-  for (const k in S.up) if (S.up[k]) { ctx.fillText(`${UPGRADES[k].icon}${S.up[k]}`, ix, H - 14); ix += 44; }
+  let ix = 12, iy = H - 14;
+  for (const k in S.up) if (S.up[k]) {
+    if (ix > W - 50) { ix = 12; iy -= 24; }
+    ctx.fillText(`${UPGRADES[k].icon}${S.up[k]}`, ix, iy); ix += 44;
+  }
   if (S.msg) {
-    ctx.textAlign = 'center'; ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center'; let fs = 28; ctx.font = `bold ${fs}px sans-serif`;
+    while (ctx.measureText(S.msg.s).width > W - 24 && fs > 12) { fs -= 2; ctx.font = `bold ${fs}px sans-serif`; }
     ctx.fillStyle = '#000'; ctx.fillText(S.msg.s, W / 2 + 2, H / 3 + 2);
-    ctx.fillStyle = '#ff5050'; ctx.fillText(S.msg.s, W / 2, H / 3);
+    ctx.fillStyle = S.msg.good ? '#ffd75e' : '#ff5050'; ctx.fillText(S.msg.s, W / 2, H / 3);
   }
 }
 
