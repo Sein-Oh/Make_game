@@ -8,7 +8,7 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0e0c18; font-family: "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: #fff; touch-action: none; user-select: none; }
   canvas { display: block; }
-  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(8,6,20,.88); text-align: center; padding: 16px; }
+  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: safe center; overflow-y: auto; background: rgba(8,6,20,.88); text-align: center; padding: 16px; }
   .hidden { display: none; }
   h1 { font-size: 38px; margin: 0 0 8px; color: #f3c74f; text-shadow: 0 3px 0 #6b1015; }
   p { margin: 6px 0; line-height: 1.5; }
@@ -30,7 +30,7 @@
   <p>인페리우스, 어둠의 마법사, 디멘터를 물리치고</p>
   <p><b>5분</b>이 되면 나타나는 <b>볼드모트</b>를 쓰러뜨려라!</p>
   <p>마법은 <b>자동</b>으로 나가요. 너는 움직이기만 하면 돼!</p>
-  <p>1분에는 <b>론</b>, 2분에는 <b>헤르미온느</b>,<br>4분에는 <b>덤블도어</b>가 도우러 와요!</p>
+  <p>1분에는 <b>론</b>, 2분에는 <b>헤르미온느</b>, 3분에는 <b>헤드위그</b>,<br>4분에는 <b>덤블도어</b>가 도우러 와요!</p>
   <p>🏪 1분마다 상점이 열려요!</p>
   <p>⌨️ 방향키 / WASD &nbsp; 📱 화면을 누르고 끌기</p>
   <button class="big" id="startBtn">시작!</button>
@@ -104,7 +104,7 @@ function newGame() {
     p: { x: 0, y: 0, r: 14, hp: 100, maxHp: 100, inv: 0, lv: 1, xp: 0, next: 5, face: 1, moving: false },
     up: { bolt: 1, orbit: 0, lightning: 0, frost: 0, potion: 0, patronus: 0, herb: 0, bombarda: 0, speed: 0, heart: 0, magnet: 0, power: 0, haste: 0 },
     cd: { bolt: 0, lightning: 0, potion: 0, patronus: 1, herb: 0.5, bombarda: 0.5 },
-    vines: [], bombs: [], booms: [], allies: [], ashots: [], shake: 0, ronDone: false, hermDone: false, dumbDone: false, chains: [], fireRings: [],
+    vines: [], bombs: [], booms: [], allies: [], ashots: [], shake: 0, ronDone: false, hermDone: false, dumbDone: false, owl: null, chains: [], fireRings: [],
     enemies: [], shots: [], eshots: [], gems: [], potions: [], fx: [], texts: [], bolts: [], stags: [],
     spawnT: 0, orbitA: 0, shopN: 0,
     shop: { speed: 0, def: 0, pow: 0, hp: 0, atk: 0 },
@@ -488,6 +488,30 @@ function update(dt) {
   if (!S.hermDone && S.t >= 120) {
     S.hermDone = true; S.allies.push(makeAlly('hermione', 50, 16));
     S.msg = { s: '💙 헤르미온느 그레인저가 도우러 왔다!', life: 3, good: true };
+  }
+  // 🦉 헤드위그: 보석을 물어다 줌
+  if (!S.owl && S.t >= 180) {
+    S.owl = { x: p.x, y: p.y - 300, tgt: null, face: 1, carry: 0 };
+    S.msg = { s: '🦉 헤드위그가 보석을 모으러 왔다!', life: 3, good: true };
+  }
+  if (S.owl) {
+    const o = S.owl;
+    if (!o.tgt || o.tgt.got || !S.gems.includes(o.tgt)) {
+      o.tgt = null; let bd = 550 ** 2;
+      for (const g of S.gems) { const d = dist2(g, o); if (d < bd && dist2(g, p) < 550 ** 2) { bd = d; o.tgt = g; } }
+    }
+    const tx = o.tgt ? o.tgt.x : p.x + Math.cos(S.t * 1.5) * 60;
+    const ty = o.tgt ? o.tgt.y : p.y - 70 + Math.sin(S.t * 3) * 15;
+    const dx = tx - o.x, dy = ty - o.y, l = Math.hypot(dx, dy) || 1;
+    const sp = Math.min(l * 5, o.tgt ? 380 : 260);
+    o.x += dx / l * sp * dt; o.y += dy / l * sp * dt;
+    if (Math.abs(dx) > 2) o.face = Math.sign(dx);
+    if (o.tgt && l < 14) {
+      const g = o.tgt; g.got = true; o.tgt = null;
+      if (g.heal) p.hp = Math.min(p.maxHp, p.hp + 25); else p.xp += g.v;
+      S.fx.push({ x: g.x, y: g.y, vx: 0, vy: -40, life: 0.4, color: '#fff' });
+    }
+    if (l > 900) { o.x = p.x; o.y = p.y - 300; }
   }
   if (!S.dumbDone && S.t >= 240) {
     S.dumbDone = true; const d = makeAlly('dumbledore', 0, -60); d.cd2 = 2; S.allies.push(d);
@@ -1069,6 +1093,37 @@ function drawEnemy(e, x, y) {
   }
 }
 
+// 🦉 헤드위그 (하얀 올빼미)
+function drawOwl(o, x, y) {
+  const flap = Math.sin(S.t * 18), f = o.face;
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = 'rgba(0,0,0,.25)'; ell(0, 40, 9, 2.5);
+  ctx.scale(f, 1);
+  // 날개
+  ctx.fillStyle = '#f4f4f0';
+  for (const sd of [-1, 1]) {
+    ctx.beginPath(); ctx.moveTo(sd * 4, -2);
+    ctx.quadraticCurveTo(sd * 16, -10 - flap * 10, sd * 24, -4 - flap * 12);
+    ctx.quadraticCurveTo(sd * 16, 2 - flap * 4, sd * 4, 5); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#2a2a2a';
+    for (let i = 0; i < 3; i++) circ(sd * (10 + i * 4), -3 - flap * (5 + i * 3), 0.8);
+    ctx.fillStyle = '#f4f4f0';
+  }
+  // 몸
+  const g = ctx.createLinearGradient(0, -12, 0, 10);
+  g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#dcdcd6');
+  ctx.fillStyle = g; ell(0, 0, 7, 9);
+  ctx.fillStyle = '#333'; [[-2, 2], [2, 4], [0, 6], [-3, 5], [3, 0]].forEach(([a, b]) => circ(a, b, 0.6));
+  // 머리
+  ctx.fillStyle = '#fbfbf8'; circ(1, -10, 6);
+  ctx.fillStyle = '#f2c230'; circ(-1, -11, 1.8); circ(4, -11, 1.8);
+  ctx.fillStyle = '#000'; circ(-0.8, -11, 0.9); circ(4.2, -11, 0.9);
+  ctx.fillStyle = '#4a4a4a'; ctx.beginPath(); ctx.moveTo(1, -9.5); ctx.lineTo(2.6, -9.5); ctx.lineTo(1.8, -7.3); ctx.fill();
+  // 발
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 1; line(-2, 8, -2, 11); line(2, 8, 2, 11);
+  ctx.restore();
+}
+
 function drawStag(st, x, y) {
   const f = st.vx >= 0 ? 1 : -1, t = S.t * 18;
   ctx.save(); ctx.translate(x, y); ctx.scale(f * 1.3, 1.3);
@@ -1225,6 +1280,8 @@ function draw() {
     ctx.stroke();
   }
   ctx.globalCompositeOperation = 'source-over';
+  // 헤드위그
+  if (S.owl) drawOwl(S.owl, S.owl.x + ox, S.owl.y + oy - 30);
   // 패트로누스 사슴
   for (const st of S.stags) drawStag(st, st.x + ox, st.y + oy);
   // 폭발 물약
