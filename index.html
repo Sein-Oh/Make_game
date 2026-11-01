@@ -31,6 +31,7 @@
   <p><b>5분</b>이 되면 나타나는 <b>볼드모트</b>를 쓰러뜨려라!</p>
   <p>마법은 <b>자동</b>으로 나가요. 너는 움직이기만 하면 돼!</p>
   <p>1분에는 <b>론</b>, 2분에는 <b>헤르미온느</b>가 도우러 와요!</p>
+  <p>🏪 1분마다 상점이 열려요!</p>
   <p>⌨️ 방향키 / WASD &nbsp; 📱 화면을 누르고 끌기</p>
   <button class="big" id="startBtn">시작!</button>
   <p class="small">혼자 즐기는 팬 게임이에요 (해리 포터는 J.K. 롤링과 워너 브라더스의 작품)</p>
@@ -40,6 +41,12 @@
   <h1>⭐ 레벨 업!</h1>
   <p>배울 마법을 하나 골라!</p>
   <div class="cards" id="cards"></div>
+</div>
+
+<div id="shop" class="overlay hidden">
+  <h1 id="shopTitle">🏪 상점</h1>
+  <p>올리고 싶은 능력을 하나 골라!</p>
+  <div class="cards" id="shopCards"></div>
 </div>
 
 <div id="end" class="overlay hidden">
@@ -99,7 +106,8 @@ function newGame() {
     cd: { bolt: 0, lightning: 0, potion: 0, patronus: 1, herb: 0.5, bombarda: 0.5 },
     vines: [], bombs: [], booms: [], allies: [], ashots: [], shake: 0, ronDone: false, hermDone: false,
     enemies: [], shots: [], eshots: [], gems: [], potions: [], fx: [], texts: [], bolts: [], stags: [],
-    spawnT: 0, orbitA: 0,
+    spawnT: 0, orbitA: 0, shopN: 0,
+    shop: { speed: 0, def: 0, pow: 0, hp: 0, atk: 0 },
   };
 }
 
@@ -116,8 +124,8 @@ addEventListener('pointercancel', () => joy = null);
 // ---------- 도우미 ----------
 const rand = (a, b) => a + Math.random() * (b - a);
 const dist2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
-const dmgMul = () => 1 + 0.15 * S.up.power;
-const cdMul = () => 1 - 0.08 * S.up.haste;
+const dmgMul = () => (1 + 0.15 * S.up.power) * (1 + 0.15 * S.shop.pow);
+const cdMul = () => (1 - 0.08 * S.up.haste) * Math.pow(0.9, S.shop.atk);
 function ell(x, y, rx, ry) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); }
 function circ(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 function line(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
@@ -136,6 +144,7 @@ function hurtEnemy(e, dmg, weak) {
 function hurtPlayer(d) {
   const p = S.p;
   if (p.inv > 0) return;
+  d = Math.max(1, Math.round(d * Math.pow(0.88, S.shop.def)));
   p.hp -= d; p.inv = 0.5; S.hurtT = 0.25;
   S.texts.push({ x: p.x, y: p.y - 30, s: '-' + d, life: 0.6, red: true });
 }
@@ -218,6 +227,33 @@ function levelUp() {
   }
   document.getElementById('levelup').classList.remove('hidden');
 }
+const SHOP = {
+  speed: { icon: '🧹', name: '속도',   desc: '이동 속도 +10%' },
+  def:   { icon: '🛡️', name: '방어력', desc: '받는 피해 -12%' },
+  pow:   { icon: '💪', name: '힘',     desc: '모든 마법 공격력 +15%' },
+  hp:    { icon: '❤️', name: '체력',   desc: '최대 체력 +30, 체력 모두 회복' },
+  atk:   { icon: '⚔️', name: '공격',   desc: '마법을 10% 더 빨리 씀' },
+};
+function openShop() {
+  S.paused = true;
+  const box = document.getElementById('shopCards');
+  box.innerHTML = '';
+  for (const k in SHOP) {
+    const u = SHOP[k], el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML = `<div class="icon">${u.icon}</div><div class="name">${u.name} Lv.${S.shop[k] + 1}</div><div class="desc">${u.desc}</div>`;
+    el.onclick = () => buy(k);
+    box.appendChild(el);
+  }
+  document.getElementById('shopTitle').textContent = `🏪 ${S.shopN}분 상점`;
+  document.getElementById('shop').classList.remove('hidden');
+}
+function buy(k) {
+  S.shop[k]++;
+  if (k === 'hp') { S.p.maxHp += 30; S.p.hp = S.p.maxHp; }
+  document.getElementById('shop').classList.add('hidden');
+  S.paused = false;
+}
 function choose(k) {
   const p = S.p;
   if (k === 'heal') p.hp = Math.min(p.maxHp, p.hp + 50);
@@ -234,6 +270,7 @@ function update(dt) {
   const p = S.p, U = S.up;
   S.t += dt;
   S.hurtT = Math.max(0, S.hurtT - dt);
+  if (S.shopN < 5 && S.t >= 60 * (S.shopN + 1)) { S.shopN++; openShop(); return; }
 
   // 이동
   let mx = 0, my = 0;
@@ -247,7 +284,7 @@ function update(dt) {
   }
   const ml = Math.hypot(mx, my);
   if (ml > 1) { mx /= ml; my /= ml; }
-  const speed = 170 * (1 + 0.12 * U.speed);
+  const speed = 170 * (1 + 0.12 * U.speed) * (1 + 0.1 * S.shop.speed);
   p.x += mx * speed * dt; p.y += my * speed * dt;
   p.moving = ml > 0.1;
   if (mx) p.face = Math.sign(mx);
@@ -272,29 +309,48 @@ function update(dt) {
     burst(v.x, v.y, '#3f3', 30);
   }
 
-  // 스투페파이 (마법 화살)
+  // 스투페파이 (마법 화살) - 움직임을 예측해서 정확히 조준 + 살짝 따라감
   S.cd.bolt -= dt;
   if (S.cd.bolt <= 0) {
-    let tgt = nearestEnemy();
+    const n = 1 + Math.floor(U.bolt / 2);
+    const incoming = new Map(); // 이미 날아가는 마법으로 쓰러질 적은 빼고 조준
+    for (const sh of S.shots) if (sh.tgt) incoming.set(sh.tgt, (incoming.get(sh.tgt) || 0) + sh.dmg * dmgMul());
+    const near = S.enemies.filter(e => dist2(e, p) < 600 ** 2 && (incoming.get(e) || 0) < e.hp).sort((a, b) => dist2(a, p) - dist2(b, p)).slice(0, n);
     const vb = S.final && S.enemies.find(e => e.type === 'voldemort');
-    if (vb && dist2(vb, p) < 550 ** 2 && (S.boltFlip = !S.boltFlip)) tgt = vb;
-    if (tgt) {
+    if (vb && dist2(vb, p) < 550 ** 2 && (S.boltFlip = !S.boltFlip)) near.unshift(vb);
+    if (near.length) {
       S.cd.bolt = (0.7 - 0.07 * U.bolt) * cdMul();
-      const n = 1 + Math.floor(U.bolt / 2);
-      const base = Math.atan2(tgt.y - p.y, tgt.x - p.x);
-      p.face = Math.cos(base) >= 0 ? 1 : -1;
+      p.face = near[0].x >= p.x ? 1 : -1;
+      const sx = p.x + p.face * 22, sy = p.y - 8, SP = 480;
       for (let i = 0; i < n; i++) {
-        const a = base + (i - (n - 1) / 2) * 0.18;
-        S.shots.push({ x: p.x + p.face * 22, y: p.y - 8, vx: Math.cos(a) * 420, vy: Math.sin(a) * 420, life: 1.5,
+        const e = near[i % near.length];
+        let tx = e.x, ty = e.y;
+        for (let k = 0; k < 3; k++) {
+          const tt = Math.hypot(tx - sx, ty - sy) / SP;
+          tx = e.x + (e.vx || 0) * tt; ty = e.y + (e.vy || 0) * tt;
+        }
+        const a = Math.atan2(ty - sy, tx - sx) + (near.length < n ? (i - (n - 1) / 2) * 0.08 : 0);
+        S.shots.push({ x: sx, y: sy, vx: Math.cos(a) * SP, vy: Math.sin(a) * SP, life: 1.5, tgt: e,
           dmg: 18 + 6 * U.bolt, pierce: U.bolt >= 5 ? 3 : U.bolt >= 3 ? 1 : 0, hit: new Set() });
       }
     }
   }
   for (const s of S.shots) {
+    if (!s.tgt || s.tgt.hp <= 0 || s.hit.has(s.tgt)) { // 목표가 사라지면 가까운 다른 적으로 바꿈
+      s.tgt = null; let bd = 260 ** 2;
+      for (const e of S.enemies) { const d = dist2(e, s); if (d < bd && !s.hit.has(e)) { bd = d; s.tgt = e; } }
+    }
+    const T = s.tgt;
+    if (T) { // 목표를 향해 방향을 살짝 꺾음
+      const want = Math.atan2(T.y - s.y, T.x - s.x), cur = Math.atan2(s.vy, s.vx);
+      let d = want - cur; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+      const turn = Math.max(-8 * dt, Math.min(8 * dt, d)), sp = Math.hypot(s.vx, s.vy);
+      s.vx = Math.cos(cur + turn) * sp; s.vy = Math.sin(cur + turn) * sp;
+    }
     s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
     for (const e of S.enemies) {
       if (s.life <= 0 || s.hit.has(e)) continue;
-      if (dist2(s, e) < (e.r + 5) ** 2) {
+      if (dist2(s, e) < (e.r + 6) ** 2) {
         hurtEnemy(e, s.dmg); s.hit.add(e);
         if (s.pierce-- <= 0) s.life = 0;
       }
@@ -502,7 +558,8 @@ function update(dt) {
       if (e.cd <= 0 && l < 380) { e.cd = rand(2.5, 4); enemyShot(e, toP, 200, 10, 'red'); }
       if (l < 150) { ux *= 0.2; uy *= 0.2; }
     }
-    e.x += ux * sp * dt; e.y += uy * sp * dt;
+    e.vx = ux * sp; e.vy = uy * sp;
+    e.x += e.vx * dt; e.y += e.vy * dt;
     if (l < e.r + p.r) hurtPlayer(e.dmg);
   }
   // 적 마법 공격
@@ -567,7 +624,7 @@ function update(dt) {
   if (S.msg) { S.msg.life -= dt; if (S.msg.life <= 0) S.msg = null; }
 
   // 레벨업
-  if (p.xp >= p.next) { p.xp -= p.next; p.lv++; p.next = Math.floor(5 + p.lv * 2.8); levelUp(); }
+  if (!S.paused && p.xp >= p.next) { p.xp -= p.next; p.lv++; p.next = Math.floor(5 + p.lv * 2.8); levelUp(); }
 
   // 끝
   if (p.hp <= 0) endGame(false);
@@ -1111,6 +1168,8 @@ function draw() {
   ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'left';
   ctx.fillText(`Lv.${p.lv}`, 12, 32);
   ctx.fillText(`❤️ ${Math.ceil(p.hp)}/${p.maxHp}`, 12, 54);
+  const st = Object.keys(SHOP).filter(k => S.shop[k]).map(k => SHOP[k].icon + S.shop[k]).join(' ');
+  if (st) { ctx.font = '14px sans-serif'; ctx.fillText(st, 12, 76); ctx.font = 'bold 16px sans-serif'; }
   ctx.textAlign = 'right'; ctx.fillText(`💀 ${S.kills}`, W - 12, 32);
   ctx.textAlign = 'left'; ctx.font = '16px sans-serif';
   let ix = 12, iy = H - 14;
@@ -1138,6 +1197,8 @@ function start() {
   newGame();
   document.getElementById('start').classList.add('hidden');
   document.getElementById('end').classList.add('hidden');
+  document.getElementById('shop').classList.add('hidden');
+  document.getElementById('levelup').classList.add('hidden');
 }
 document.getElementById('startBtn').onclick = start;
 document.getElementById('againBtn').onclick = start;
