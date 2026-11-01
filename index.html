@@ -30,7 +30,7 @@
   <p>인페리우스, 어둠의 마법사, 디멘터를 물리치고</p>
   <p><b>5분</b>이 되면 나타나는 <b>볼드모트</b>를 쓰러뜨려라!</p>
   <p>마법은 <b>자동</b>으로 나가요. 너는 움직이기만 하면 돼!</p>
-  <p>1분에는 <b>론</b>, 2분에는 <b>헤르미온느</b>가 도우러 와요!</p>
+  <p>1분에는 <b>론</b>, 2분에는 <b>헤르미온느</b>,<br>4분에는 <b>덤블도어</b>가 도우러 와요!</p>
   <p>🏪 1분마다 상점이 열려요!</p>
   <p>⌨️ 방향키 / WASD &nbsp; 📱 화면을 누르고 끌기</p>
   <button class="big" id="startBtn">시작!</button>
@@ -104,7 +104,7 @@ function newGame() {
     p: { x: 0, y: 0, r: 14, hp: 100, maxHp: 100, inv: 0, lv: 1, xp: 0, next: 5, face: 1, moving: false },
     up: { bolt: 1, orbit: 0, lightning: 0, frost: 0, potion: 0, patronus: 0, herb: 0, bombarda: 0, speed: 0, heart: 0, magnet: 0, power: 0, haste: 0 },
     cd: { bolt: 0, lightning: 0, potion: 0, patronus: 1, herb: 0.5, bombarda: 0.5 },
-    vines: [], bombs: [], booms: [], allies: [], ashots: [], shake: 0, ronDone: false, hermDone: false,
+    vines: [], bombs: [], booms: [], allies: [], ashots: [], shake: 0, ronDone: false, hermDone: false, dumbDone: false, chains: [], fireRings: [],
     enemies: [], shots: [], eshots: [], gems: [], potions: [], fx: [], texts: [], bolts: [], stags: [],
     spawnT: 0, orbitA: 0, shopN: 0,
     shop: { speed: 0, def: 0, pow: 0, hp: 0, atk: 0 },
@@ -163,7 +163,7 @@ function nearestFrom(pt, maxD) {
 }
 function makeAlly(kind, offx, offy) {
   const a = { kind, offx, offy, x: S.p.x + offx, y: S.p.y + offy, face: 1, moving: false, cd: 0.5, inv: 0 };
-  for (let i = 0; i < 25; i++) burst(a.x, a.y, kind === 'ron' ? '#ff9a3c' : '#9fd0ff', 1);
+  for (let i = 0; i < 25; i++) burst(a.x, a.y, { ron: '#ff9a3c', hermione: '#9fd0ff', dumbledore: '#ffe27a' }[kind], kind === 'dumbledore' ? 2 : 1);
   return a;
 }
 function explode(x, y, R, dmg) {
@@ -472,6 +472,10 @@ function update(dt) {
     if (Math.random() < 0.7) S.fx.push({ x: b.x, y: b.y, vx: rand(-20, 20), vy: rand(-20, 20), life: 0.3, color: '#ffb040' });
   }
   S.bombs = S.bombs.filter(b => b.life > 0);
+  for (const c of S.chains) c.life -= dt;
+  S.chains = S.chains.filter(c => c.life > 0);
+  for (const r of S.fireRings) r.t += dt;
+  S.fireRings = S.fireRings.filter(r => r.t < 0.7);
   for (const bm of S.booms) bm.t += dt;
   S.booms = S.booms.filter(bm => bm.t < 0.5);
   S.shake = Math.max(0, S.shake - dt * 30);
@@ -485,6 +489,10 @@ function update(dt) {
     S.hermDone = true; S.allies.push(makeAlly('hermione', 50, 16));
     S.msg = { s: '💙 헤르미온느 그레인저가 도우러 왔다!', life: 3, good: true };
   }
+  if (!S.dumbDone && S.t >= 240) {
+    S.dumbDone = true; const d = makeAlly('dumbledore', 0, -60); d.cd2 = 2; S.allies.push(d);
+    S.msg = { s: '✨ 알버스 덤블도어가 도우러 왔다! ✨', life: 3.5, good: true };
+  }
   for (const a of S.allies) {
     const tx = p.x + a.offx, ty = p.y + a.offy, dx = tx - a.x, dy = ty - a.y, l = Math.hypot(dx, dy);
     if (l > 600) { a.x = tx; a.y = ty; }
@@ -492,6 +500,21 @@ function update(dt) {
     a.moving = l > 6;
     if (a.moving && Math.abs(dx) > 3) a.face = Math.sign(dx);
     a.cd -= dt;
+    if (a.kind === 'dumbledore') { // 불의 고리: 해리 주변의 적을 밀어내며 공격
+      a.cd2 -= dt;
+      if (a.cd2 <= 0 && S.enemies.some(e => dist2(e, p) < 200 ** 2)) {
+        a.cd2 = 6;
+        for (const e of S.enemies) {
+          const d = Math.sqrt(dist2(e, p));
+          if (d < 190 + e.r) {
+            hurtEnemy(e, 60 * (1 + S.t / 120));
+            if (!e.boss) { e.x += (e.x - p.x) / (d || 1) * 70; e.y += (e.y - p.y) / (d || 1) * 70; }
+          }
+        }
+        S.fireRings.push({ x: p.x, y: p.y, t: 0 });
+        S.shake = Math.min(8, S.shake + 3);
+      }
+    }
     if (a.cd <= 0) {
       const va = S.final && S.enemies.find(e => e.type === 'voldemort');
       const tgt = va && dist2(va, a) < 500 ** 2 ? va : nearestFrom(a, 450);
@@ -502,6 +525,17 @@ function update(dt) {
         if (a.kind === 'ron') {
           a.cd = 0.75;
           S.ashots.push({ x: a.x + a.face * 22, y: a.y - 8, vx: Math.cos(ang) * 460, vy: Math.sin(ang) * 460, life: 1.4, dmg: 22 * pw, kb: 30, color: 'ron' });
+        } else if (a.kind === 'dumbledore') { // 연쇄 번개: 적 6명을 차례로 맞힘
+          a.cd = 1.3;
+          const pts = [{ x: a.x + a.face * 26, y: a.y - 20 }], got = new Set();
+          let cur = tgt;
+          for (let j = 0; j < 6 && cur; j++) {
+            hurtEnemy(cur, 45 * pw); got.add(cur); pts.push({ x: cur.x, y: cur.y });
+            let nb = null, bd = 170 ** 2;
+            for (const o of S.enemies) { if (got.has(o) || o.hp <= 0) continue; const d = dist2(o, cur); if (d < bd) { bd = d; nb = o; } }
+            cur = nb;
+          }
+          S.chains.push({ pts, life: 0.3, jit: pts.map(() => [rand(-10, 10), rand(-10, 10)]) });
         } else {
           a.cd = 1.1;
           for (let i = -1; i <= 1; i += 2) {
@@ -758,6 +792,61 @@ function drawKid(x, y, k) {
     line(4.9, -13.8, 5.1, -13.8); line(-1.7, -13.8, -7, -15);
   }
   ctx.restore(); ctx.globalAlpha = 1;
+}
+
+// 🧙‍♂️ 알버스 덤블도어
+function drawDumbledore(x, y, k) {
+  const f = k.face, t = S.t + 4;
+  const w = k.moving ? Math.sin(t * 10) : 0, bob = k.moving ? Math.abs(Math.sin(t * 10)) * 1.2 : 0;
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = 'rgba(0,0,0,.4)'; ell(0, 22, 15, 4);
+  glow(0, -2, 38, 'rgba(255,230,140,0.18)');
+  ctx.scale(f * 1.1, 1.1); ctx.translate(0, -bob - 3);
+  // 뒤로 늘어진 은빛 머리
+  ctx.fillStyle = '#cfd0d6';
+  ctx.beginPath(); ctx.moveTo(-8, -24); ctx.quadraticCurveTo(-14, -10, -11, 4); ctx.lineTo(-4, 2); ctx.lineTo(-3, -18); ctx.closePath(); ctx.fill();
+  // 긴 로브 (자주색)
+  const rg = ctx.createLinearGradient(0, -8, 0, 22);
+  rg.addColorStop(0, '#6a5684'); rg.addColorStop(1, '#2f2540');
+  ctx.fillStyle = rg;
+  ctx.beginPath(); ctx.moveTo(-9, -7); ctx.lineTo(9, -7); ctx.quadraticCurveTo(13, 6, 15, 20);
+  ctx.quadraticCurveTo(8, 22 + w, 0, 21); ctx.quadraticCurveTo(-8, 22 - w, -15, 20); ctx.quadraticCurveTo(-13, 6, -9, -7); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#c9a43a'; ctx.lineWidth = 1; // 금색 테두리
+  ctx.beginPath(); ctx.moveTo(-15, 20); ctx.quadraticCurveTo(-8, 22 - w, 0, 21); ctx.quadraticCurveTo(8, 22 + w, 15, 20); ctx.stroke();
+  ctx.fillStyle = '#e3c25a'; // 별 무늬
+  [[-8, 4], [6, 10], [-4, 14], [9, 0], [-10, 12]].forEach(([a, b]) => circ(a, b, 0.9));
+  // 넓은 소매와 딱총나무 지팡이
+  ctx.fillStyle = '#5a4872';
+  ctx.beginPath(); ctx.moveTo(5, -5); ctx.lineTo(15, 2); ctx.lineTo(13, 7); ctx.lineTo(4, 1); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#efd2bb'; circ(15, 4.5, 2.3);
+  ctx.strokeStyle = '#cdbfa6'; ctx.lineWidth = 2; ctx.lineCap = 'round'; line(15.5, 4, 27, -7);
+  ctx.fillStyle = '#b8a888'; circ(19, 0.5, 1.3); circ(22.5, -2.8, 1.1); circ(25, -5, 0.9);
+  glow(27.5, -7.5, 8, 'rgba(255,240,160,0.95)');
+  // 얼굴
+  ctx.fillStyle = '#efd2bb'; ell(1, -17, 8, 9);
+  // 은빛 머리 윗부분
+  ctx.fillStyle = '#dcdde2';
+  ctx.beginPath(); ctx.moveTo(-8, -17); ctx.quadraticCurveTo(-8, -28, 2, -27); ctx.quadraticCurveTo(10, -27, 9, -20); ctx.quadraticCurveTo(4, -24, -3, -22); ctx.closePath(); ctx.fill();
+  // 아주 긴 은빛 수염
+  const bg = ctx.createLinearGradient(0, -14, 0, 14);
+  bg.addColorStop(0, '#f2f2f5'); bg.addColorStop(1, '#b9bac2');
+  ctx.fillStyle = bg;
+  ctx.beginPath(); ctx.moveTo(-6, -13); ctx.quadraticCurveTo(1, -9, 9, -13);
+  ctx.quadraticCurveTo(9, 0, 4 + w * 0.5, 14); ctx.lineTo(2 + w * 0.5, 16); ctx.quadraticCurveTo(-4, 2, -6, -13); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(150,150,160,.6)'; ctx.lineWidth = 0.6; line(1, -8, 2, 10); line(4, -8, 4, 8); line(-2, -8, 0, 6);
+  ctx.fillStyle = '#c9a43a'; ctx.fillRect(1 + w * 0.5, 9, 3, 1.6); // 수염 장식
+  // 콧수염
+  ctx.fillStyle = '#e8e8ec'; ell(0.5, -12.5, 3.5, 1.4); ell(6.5, -12.5, 3.2, 1.4);
+  // 휘어진 코
+  ctx.strokeStyle = '#d4a98f'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(4, -17); ctx.quadraticCurveTo(6.5, -15, 5, -13.5); ctx.stroke();
+  // 파란 눈
+  ctx.fillStyle = '#3d7fd0'; circ(1.5, -17.5, 1); circ(7.5, -17.5, 0.9);
+  ctx.strokeStyle = '#ccc'; ctx.lineWidth = 0.7; line(-0.5, -19.5, 3, -19.8); line(6, -19.8, 9, -19.5);
+  // 반달 안경
+  ctx.strokeStyle = '#c9a43a'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(1.5, -16.8, 2.6, 0, Math.PI); ctx.closePath(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(7.6, -16.8, 2.3, 0, Math.PI); ctx.closePath(); ctx.stroke();
+  ctx.restore();
 }
 
 // 🌿 헤르비폴즈 덩굴
@@ -1042,6 +1131,7 @@ function draw() {
   list.sort((a, b) => a.y - b.y);
   for (const e of list) {
     if (e === p) drawKid(cx0, cy0, { kind: 'harry', face: p.face, moving: p.moving, inv: p.inv });
+    else if (e.kind === 'dumbledore') drawDumbledore(e.x + ox, e.y + oy, e);
     else if (e.kind) drawKid(e.x + ox, e.y + oy, e);
     else drawEnemy(e, e.x + ox, e.y + oy);
   }
@@ -1066,6 +1156,34 @@ function draw() {
     ctx.strokeStyle = 'rgba(255,120,120,0.6)'; ctx.lineWidth = 4;
     line(x, y, x - s.vx * 0.05, y - s.vy * 0.05);
     ctx.fillStyle = '#fff'; circ(x, y, 3);
+  }
+  // 덤블도어 연쇄 번개
+  for (const c of S.chains) {
+    ctx.globalAlpha = c.life / 0.3;
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.strokeStyle = pass ? '#ffffff' : 'rgba(255,230,120,0.8)'; ctx.lineWidth = pass ? 1.5 : 5;
+      ctx.beginPath(); ctx.moveTo(c.pts[0].x + ox, c.pts[0].y + oy);
+      for (let i = 1; i < c.pts.length; i++) {
+        const a = c.pts[i - 1], b = c.pts[i], j = c.jit[i];
+        ctx.lineTo((a.x + b.x) / 2 + j[0] + ox, (a.y + b.y) / 2 + j[1] + oy);
+        ctx.lineTo(b.x + ox, b.y + oy);
+      }
+      ctx.stroke();
+    }
+    for (let i = 1; i < c.pts.length; i++) glow(c.pts[i].x + ox, c.pts[i].y + oy, 16, 'rgba(255,230,120,0.7)');
+    ctx.globalAlpha = 1;
+  }
+  // 덤블도어 불의 고리
+  for (const r of S.fireRings) {
+    const k = r.t / 0.7, R = 190 * (0.25 + 0.75 * Math.min(1, k * 1.6)), x = r.x + ox, y = r.y + oy, al = 1 - k;
+    ctx.strokeStyle = `rgba(255,120,20,${al})`; ctx.lineWidth = 14;
+    ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,230,120,${al})`; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.stroke();
+    for (let i = 0; i < 24; i++) {
+      const a = i / 24 * Math.PI * 2 + r.t * 2, fl = 10 + Math.sin(i * 3 + r.t * 30) * 6;
+      glow(x + Math.cos(a) * R, y + Math.sin(a) * R - fl * 0.5, fl, `rgba(255,${100 + (i % 3) * 50},20,${al})`);
+    }
   }
   // 친구들 마법
   for (const s of S.ashots) {
