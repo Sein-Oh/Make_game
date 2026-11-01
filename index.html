@@ -20,6 +20,11 @@
   .card .icon { font-size: 40px; }
   .card .name { font-weight: bold; font-size: 17px; margin: 6px 0; color: #f3c74f; }
   .card .desc { font-size: 14px; color: #ddd; }
+  #devBtn { position: fixed; right: 10px; bottom: 10px; width: 44px; height: 44px; border-radius: 12px; border: 2px solid #c99a2e; background: rgba(40,20,30,.7); font-size: 22px; cursor: pointer; }
+  .timebox { font-size: 20px; margin: 12px 0; }
+  .timebox input { width: 70px; font-size: 22px; padding: 6px; border-radius: 8px; border: 2px solid #c99a2e; text-align: center; }
+  .quick { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 420px; }
+  .quick button, button.sub { font-size: 16px; padding: 8px 12px; border-radius: 10px; border: 2px solid #c99a2e; background: #3a0f14; color: #fff; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -47,6 +52,17 @@
   <h1 id="shopTitle">🏪 상점</h1>
   <p>올리고 싶은 능력을 하나 골라!</p>
   <div class="cards" id="shopCards"></div>
+</div>
+
+<button id="devBtn" class="hidden" title="개발자 특권">🛠️</button>
+<div id="dev" class="overlay hidden">
+  <h1>🛠️ 개발자 특권</h1>
+  <p>가고 싶은 시간을 써 줘!</p>
+  <div class="timebox"><input id="devMin" type="number" min="0" max="5" value="0"> 분 &nbsp; <input id="devSec" type="number" min="0" max="59" value="0"> 초</div>
+  <div class="quick" id="devQuick"></div>
+  <button class="big" id="devGo">이동!</button>
+  <button class="sub" id="devCancel" style="margin-top:10px">취소</button>
+  <p class="small">그 시간까지 일어나는 일(친구 등장, 보스, 상점, 물약)이 시간에 맞게 적용돼요</p>
 </div>
 
 <div id="end" class="overlay hidden">
@@ -1401,13 +1417,57 @@ function draw() {
 // ---------- 시작 / 끝 ----------
 function endGame(win) {
   S.running = false;
+  document.getElementById('devBtn').classList.add('hidden');
   document.getElementById('endTitle').textContent = win ? '⚡ 볼드모트를 물리쳤다! ⚡' : '💥 쓰러졌다...';
   const m = Math.floor(S.t / 60), s = Math.floor(S.t % 60);
   document.getElementById('endText').innerHTML = `버틴 시간: ${m}분 ${s}초<br>물리친 적: ${S.kills}명<br>레벨: ${S.p.lv}`;
   document.getElementById('end').classList.remove('hidden');
 }
+// ---------- 🛠️ 개발자 특권: 시간 이동 ----------
+function jumpTo(t) {
+  t = Math.max(0, Math.min(330, t));
+  S.t = t;
+  // 아직 안 된 시간으로 돌아가면, 그 뒤에 나오는 것들은 다시 사라짐
+  for (const [flag, time, kind] of [['ronDone', 60, 'ron'], ['hermDone', 120, 'hermione'], ['dumbDone', 240, 'dumbledore']]) {
+    if (t < time) { S[flag] = false; S.allies = S.allies.filter(a => a.kind !== kind); }
+  }
+  if (t < 180) S.owl = null;
+  if (t < TROLL_TIME) { S.trollDone = false; S.enemies = S.enemies.filter(e => e.type !== 'troll'); }
+  if (t < FINAL_TIME) { S.final = false; S.enemies = S.enemies.filter(e => e.type !== 'voldemort'); }
+  // 지나간 상점은 하나씩 차례로 열림 (최대 5번)
+  S.shopN = Math.min(S.shopN, Math.floor(t / 60));
+  // 회복 물약은 하나만 바로 나옴
+  const items = Math.floor(t / 30);
+  S.itemN = items > S.itemN ? items - 1 : items;
+  S.spawnT = 0;
+  // 친구들/보스는 다음 화면에서 시간에 맞게 자동으로 등장
+}
+const QUICK = [[30, '0:30'], [60, '1:00 론'], [120, '2:00 헤르미온느'], [150, '2:30 트롤'], [180, '3:00 헤드위그'], [240, '4:00 덤블도어'], [295, '4:55'], [300, '5:00 볼드모트']];
+const devQ = document.getElementById('devQuick');
+for (const [t, label] of QUICK) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.onclick = () => { document.getElementById('devMin').value = Math.floor(t / 60); document.getElementById('devSec').value = t % 60; };
+  devQ.appendChild(b);
+}
+document.getElementById('devBtn').onclick = () => {
+  if (!S || !S.running || S.paused) return;
+  S.paused = true;
+  document.getElementById('devMin').value = Math.floor(S.t / 60);
+  document.getElementById('devSec').value = Math.floor(S.t % 60);
+  document.getElementById('dev').classList.remove('hidden');
+};
+function closeDev() { document.getElementById('dev').classList.add('hidden'); S.paused = false; }
+document.getElementById('devCancel').onclick = closeDev;
+document.getElementById('devGo').onclick = () => {
+  const m = parseInt(document.getElementById('devMin').value) || 0, sec = parseInt(document.getElementById('devSec').value) || 0;
+  closeDev();
+  jumpTo(m * 60 + sec);
+};
+
 function start() {
   newGame();
+  document.getElementById('devBtn').classList.remove('hidden');
   document.getElementById('start').classList.add('hidden');
   document.getElementById('end').classList.add('hidden');
   document.getElementById('shop').classList.add('hidden');
