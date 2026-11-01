@@ -31,7 +31,7 @@
   <p><b>5분</b>이 되면 나타나는 <b>볼드모트</b>를 쓰러뜨려라!</p>
   <p>마법은 <b>자동</b>으로 나가요. 너는 움직이기만 하면 돼!</p>
   <p>1분에는 <b>론</b>, 2분에는 <b>헤르미온느</b>, 3분에는 <b>헤드위그</b>,<br>4분에는 <b>덤블도어</b>가 도우러 와요!</p>
-  <p>🏪 1분마다 상점이 열려요!</p>
+  <p>🏪 1분마다 상점이 열리고, 🧪 30초마다 회복 물약이 나와요!</p>
   <p>⌨️ 방향키 / WASD &nbsp; 📱 화면을 누르고 끌기</p>
   <button class="big" id="startBtn">시작!</button>
   <p class="small">혼자 즐기는 팬 게임이에요 (해리 포터는 J.K. 롤링과 워너 브라더스의 작품)</p>
@@ -104,7 +104,7 @@ function newGame() {
     p: { x: 0, y: 0, r: 14, hp: 100, maxHp: 100, inv: 0, lv: 1, xp: 0, next: 5, face: 1, moving: false },
     up: { bolt: 1, orbit: 0, lightning: 0, frost: 0, potion: 0, patronus: 0, herb: 0, bombarda: 0, speed: 0, heart: 0, magnet: 0, power: 0, haste: 0 },
     cd: { bolt: 0, lightning: 0, potion: 0, patronus: 1, herb: 0.5, bombarda: 0.5 },
-    vines: [], bombs: [], booms: [], allies: [], ashots: [], shake: 0, ronDone: false, hermDone: false, dumbDone: false, owl: null, chains: [], fireRings: [],
+    vines: [], bombs: [], booms: [], allies: [], ashots: [], shake: 0, ronDone: false, hermDone: false, dumbDone: false, owl: null, items: [], itemN: 0, chains: [], fireRings: [],
     enemies: [], shots: [], eshots: [], gems: [], potions: [], fx: [], texts: [], bolts: [], stags: [],
     spawnT: 0, orbitA: 0, shopN: 0,
     shop: { speed: 0, def: 0, pow: 0, hp: 0, atk: 0 },
@@ -654,6 +654,27 @@ function update(dt) {
     return true;
   });
 
+  // 🧪 30초마다 회복 물약
+  if (S.t >= 30 * (S.itemN + 1)) {
+    S.itemN++;
+    const a = rand(0, Math.PI * 2), d = rand(130, 200);
+    S.items.push({ x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d, t: 0 });
+    S.msg = { s: '🧪 회복 물약이 나타났다!', life: 2.5, good: true };
+  }
+  for (const it of S.items) {
+    it.t += dt;
+    const d2 = dist2(it, p);
+    if (d2 < (90 * (1 + 0.4 * U.magnet)) ** 2) { const l = Math.sqrt(d2) || 1; it.x += (p.x - it.x) / l * 300 * dt; it.y += (p.y - it.y) / l * 300 * dt; }
+    if (d2 < (p.r + 14) ** 2) {
+      it.got = true;
+      const h = Math.round(p.maxHp * 0.4);
+      p.hp = Math.min(p.maxHp, p.hp + h);
+      S.texts.push({ x: p.x, y: p.y - 34, s: '+' + h, life: 1, heal: true });
+      burst(p.x, p.y, '#ff6b8a', 16);
+    }
+  }
+  S.items = S.items.filter(it => !it.got);
+
   // 보석 모으기
   const mag = 90 * (1 + 0.4 * U.magnet);
   for (const g of S.gems) {
@@ -1164,6 +1185,23 @@ function draw() {
   }
   // 헤르비폴즈 덩굴
   for (const v of S.vines) drawVine(v, v.x + ox, v.y + oy);
+  // 회복 물약
+  for (const it of S.items) {
+    let x = it.x + ox, y = it.y + oy - 6 + Math.sin(it.t * 4) * 3;
+    if (x < 20 || y < 20 || x > W - 20 || y > H - 20) { // 화면 밖이면 가장자리에 화살표
+      const a = Math.atan2(y - H / 2, x - W / 2);
+      const ax = Math.max(24, Math.min(W - 24, x)), ay = Math.max(24, Math.min(H - 24, y));
+      ctx.save(); ctx.translate(ax, ay); ctx.rotate(a);
+      ctx.fillStyle = '#ff6b8a'; ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(-6, -8); ctx.lineTo(-6, 8); ctx.fill();
+      ctx.restore(); continue;
+    }
+    glow(x, y, 26, 'rgba(255,90,130,0.55)');
+    ctx.fillStyle = '#e8f4ff'; ctx.fillRect(x - 3, y - 15, 6, 6);
+    ctx.fillStyle = '#8a5a2b'; ctx.fillRect(x - 3.5, y - 18, 7, 3.5);
+    ctx.fillStyle = '#e8304f'; circ(x, y, 9);
+    ctx.fillStyle = 'rgba(255,255,255,.6)'; circ(x - 3, y - 3, 2.5);
+    ctx.fillStyle = '#fff'; ctx.fillRect(x - 1.2, y - 4, 2.4, 8); ctx.fillRect(x - 4, y - 1.2, 8, 2.4);
+  }
   // 보석
   for (const gm of S.gems) {
     const x = gm.x + ox, y = gm.y + oy;
@@ -1306,7 +1344,7 @@ function draw() {
   ctx.textAlign = 'center'; ctx.font = 'bold 14px sans-serif';
   for (const t of S.texts) {
     ctx.fillStyle = '#000'; ctx.fillText(t.s, t.x + ox + 1, t.y + oy + 1);
-    ctx.fillStyle = t.red ? '#ff5555' : t.weak ? '#ffb030' : '#fff'; ctx.fillText(t.s, t.x + ox, t.y + oy);
+    ctx.fillStyle = t.heal ? '#5f5' : t.red ? '#ff5555' : t.weak ? '#ffb030' : '#fff'; ctx.fillText(t.s, t.x + ox, t.y + oy);
   }
 
   // 어두운 숲 테두리
